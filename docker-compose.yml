@@ -1,0 +1,146 @@
+services:
+  danmu-multi-mysql:
+    image: registry.cn-hangzhou.aliyuncs.com/zaqbest/mysql:8.0.31
+    hostname: danmu-multi-mysql
+    restart: unless-stopped
+    environment:
+      # !!! IMPORTANT: replace this with a strong password !!!
+      MYSQL_ROOT_PASSWORD: "rikei@1234"                  # MySQL root password
+      MYSQL_USER: "danmuapi"                             # Database username
+      MYSQL_PASSWORD: "rikei@1234"                       # Database password
+      TZ: "Asia/Shanghai"
+    volumes:
+      - danmu_multi_server_db_data:/var/lib/mysql
+      # Init scripts run once on first startup (empty data directory)
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    command:
+      - '--character-set-server=utf8mb4'
+      - '--collation-server=utf8mb4_unicode_ci'
+      - '--binlog_expire_logs_seconds=259200' # Automatically clean binlogs older than 3 days
+      - '--default-authentication-plugin=mysql_native_password' # Use traditional password authentication
+      # --- Stability settings for 2 GB low-memory servers ---
+      - '--innodb_buffer_pool_size=192M'       # InnoDB buffer pool: controls MySQL memory usage
+      - '--innodb_log_file_size=32M'           # Log file size: balances write performance and memory usage
+      - '--innodb_log_buffer_size=8M'          # Log buffer: reduces resident memory
+      - '--max_connections=40'                 # Limit connections to prevent OOM
+      - '--table_open_cache=128'               # Reduce table cache usage
+      - '--performance_schema=OFF'             # Disable performance monitoring to save memory
+      - '--innodb_flush_log_at_trx_commit=2'   # Improve performance; a power loss may lose about one second of transactions
+      - '--innodb_flush_method=O_DIRECT'       # Reduce duplicate OS page-cache usage
+      - '--max_allowed_packet=64M'             # Prevent disconnects caused by large write packets
+      - '--wait_timeout=600'                   # Release idle connections promptly
+      - '--interactive_timeout=600'            # Release interactive idle connections promptly
+      - '--net_read_timeout=120'               # Network read timeout
+      - '--net_write_timeout=120'              # Network write timeout
+    healthcheck:
+      # Use mysqladmin ping for the health check and read the password from environment variables
+      test: ["CMD-SHELL", "mysqladmin ping -u$${MYSQL_USER} -p$${MYSQL_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 30s
+    networks:
+      - docker-kit-network
+    mem_limit: 512m
+  danmu-multi-server:
+    image: registry.cn-hangzhou.aliyuncs.com/zaqbest/misaka_danmu_server:v2.8.9
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=0022
+      - TZ=Asia/Shanghai
+      # --- Database connection configuration ---
+      - DANMUAPI_DATABASE__TYPE=mysql
+      # Access MySQL by service name on the shared Docker network using its internal port
+      - DANMUAPI_DATABASE__HOST=danmu-multi-mysql
+      - DANMUAPI_DATABASE__PORT=3306
+      - DANMUAPI_DATABASE__NAME=danmuapi1
+      # !!! IMPORTANT: use the same username and password as the MySQL container above !!!
+      - DANMUAPI_DATABASE__USER=danmuapi
+      - DANMUAPI_DATABASE__PASSWORD=rikei@1234
+      # --- Cache configuration (optional) ---
+      # The default hybrid mode (in-memory L1 + database L2) requires no extra service
+      # Available backends: memory / redis / database / hybrid (default)
+      # - DANMUAPI_CACHE__BACKEND=redis
+      # - DANMUAPI_CACHE__REDIS_URL=redis://:your_password@redis:6379/0
+      # - DANMUAPI_CACHE__REDIS_MAX_MEMORY=256mb
+      # - DANMUAPI_CACHE__REDIS_SOCKET_TIMEOUT=30
+      # - DANMUAPI_CACHE__REDIS_SOCKET_CONNECT_TIMEOUT=5
+      # - DANMUAPI_CACHE__MEMORY_MAXSIZE=1024
+      # - DANMUAPI_CACHE__MEMORY_DEFAULT_TTL=600
+      # --- Initial administrator configuration ---
+      - DANMUAPI_ADMIN__INITIAL_USER=admin
+    volumes:
+      - danmu_multi_server_app_data_1:/app/config
+      # Docker socket mapping - used by the one-click update feature
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${DANMU_SERVER_PORT}:7768"
+    networks:
+      - docker-kit-network
+    mem_limit: 384m
+  danmu-multi-server-2:
+    image: registry.cn-hangzhou.aliyuncs.com/zaqbest/misaka_danmu_server:v2.8.9
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=0022
+      - TZ=Asia/Shanghai
+      # --- Database connection configuration ---
+      - DANMUAPI_DATABASE__TYPE=mysql
+      - DANMUAPI_DATABASE__HOST=danmu-multi-mysql
+      - DANMUAPI_DATABASE__PORT=3306
+      - DANMUAPI_DATABASE__NAME=danmuapi2
+      - DANMUAPI_DATABASE__USER=danmuapi
+      - DANMUAPI_DATABASE__PASSWORD=rikei@1234
+      # --- Initial administrator configuration ---
+      - DANMUAPI_ADMIN__INITIAL_USER=admin
+    volumes:
+      - danmu_multi_server_app_data_2:/app/config
+      # Docker socket mapping - used by the one-click update feature
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${DANMU_SERVER_PORT_2}:7768"
+    networks:
+      - docker-kit-network
+    mem_limit: 384m
+  danmu-multi-server-3:
+    image: registry.cn-hangzhou.aliyuncs.com/zaqbest/misaka_danmu_server:v2.8.9
+    restart: unless-stopped
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - UMASK=0022
+      - TZ=Asia/Shanghai
+      # --- Database connection configuration ---
+      - DANMUAPI_DATABASE__TYPE=mysql
+      - DANMUAPI_DATABASE__HOST=danmu-multi-mysql
+      - DANMUAPI_DATABASE__PORT=3306
+      - DANMUAPI_DATABASE__NAME=danmuapi3
+      - DANMUAPI_DATABASE__USER=danmuapi
+      - DANMUAPI_DATABASE__PASSWORD=rikei@1234
+      # --- Initial administrator configuration ---
+      - DANMUAPI_ADMIN__INITIAL_USER=admin
+    volumes:
+      - danmu_multi_server_app_data_3:/app/config
+      # Docker socket mapping - used by the one-click update feature
+      - /var/run/docker.sock:/var/run/docker.sock
+    ports:
+      - "${DANMU_SERVER_PORT_3}:7768"
+    networks:
+      - docker-kit-network
+    mem_limit: 384m
+volumes:
+  danmu_multi_server_app_data_1:
+    external: true
+  danmu_multi_server_app_data_2:
+    external: true
+  danmu_multi_server_app_data_3:
+    external: true
+  danmu_multi_server_db_data:
+    external: true
+networks:
+  docker-kit-network:
+    external: true
